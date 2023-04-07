@@ -6,32 +6,42 @@ import (
 	// "log"
 	// "sync"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 	// "nhooyr.io/websocket"
 )
 
 func main() {
-	err := startHttpServer(8080)
+	if len(os.Args) < 3 {
+		log.Fatal("Usage: go-websockets [port] [password]")
+	}
+	err := startHttpServer(os.Args[1], os.Args[2])
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 }
 
-func startHttpServer(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func startHttpServer(port string, password string) error {
+	fmt.Printf("starting server on port %s\n", port)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
 		return err
 	}
-	server := createServer()
+	server, err := createServer(password)
+	if err != nil {
+		return err
+	}
 	httpServer := http.Server{
 		Handler:      server,
 		ReadTimeout:  time.Second * 10,
 		WriteTimeout: time.Second * 10,
 	}
-	errorChannel := make(chan error, 1)
+	errorChannel := make(chan error)
 	go func() {
+		fmt.Println("listening")
 		errorChannel <- httpServer.Serve(listener)
 	}()
 	for err := range errorChannel {

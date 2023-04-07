@@ -4,17 +4,18 @@
     // and so we should scroll the next message into view when received.
     let expectingMessage = false
     let shared
-    function dial() {
-      const conn = new WebSocket(`ws://${location.host}/join?token=asd&user=jonah`)
+    function dial(username) {
+      const conn = new WebSocket(`ws://${location.host}/join?token=asd&user=${username}`)
       shared = conn
       conn.addEventListener("close", ev => {
         appendLog(`WebSocket Disconnected code: ${ev.code}, reason: ${ev.reason}`, true)
         if (ev.code !== 1001) {
           appendLog("Reconnecting in 1s", true)
-          setTimeout(dial, 1000)
+          setTimeout(() => dial(username), 1000)
         }
       })
       conn.addEventListener("open", ev => {
+        appendLog("Submit a message to get started!")
         console.info("websocket connected")
       })
   
@@ -24,14 +25,23 @@
           console.error("unexpected message type", typeof ev.data)
           return
         }
-        const p = appendLog(ev.data)
+        console.log(ev.data)
+        const msg = JSON.parse(ev.data)
+        console.log(msg)
+        const p = appendLog(`${msg.User.Name}: ${msg.Body}`)
         if (expectingMessage) {
           p.scrollIntoView()
           expectingMessage = false
         }
       })
     }
-    dial()
+
+    const userForm = document.getElementById("userbtn")
+    userForm.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      const username = document.getElementById("user-input").value
+      dial(username)
+    })
   
     const messageLog = document.getElementById("message-log")
     const publishForm = document.getElementById("publish-form")
@@ -49,7 +59,6 @@
       messageLog.append(p)
       return p
     }
-    appendLog("Submit a message to get started!")
   
     // onsubmit publishes the message from the user when the form is submitted.
     publishForm.onsubmit = async ev => {

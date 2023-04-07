@@ -2,60 +2,96 @@ package main
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
-	"github.com/deckarep/golang-set"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthCommandType int
 
 const (
-	CreateToken = iota
-	ConsumeToken
+	ConsumeToken = iota
+	CheckPw
+)
+
+type AuthCommandError int
+
+const (
+	NoError = iota
+	InvalidPassword
+	TokenGeneration
+	UnknownCommand
 )
 
 type AuthCommandResponse struct {
 	authorized bool
 	token      string
-	err        error
+	user       string
+	err        AuthCommandError
 }
 
 type AuthCommand struct {
-	typ   AuthCommandType
-	token string
-	reply chan AuthCommandResponse
+	typ      AuthCommandType
+	token    string
+	user     string
+	password string
+	reply    chan AuthCommandResponse
 }
 
-func startAuthService() chan<- AuthCommand {
+type LoginRequest struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+func startAuthService(password string) (chan<- AuthCommand, error) {
 	// set doesn't need to be synchronized, only the below goroutine will access it
-	tokens := mapset.NewThreadUnsafeSet()
+	tokens := make(map[string]string)
 
 	commands := make(chan AuthCommand)
+	serverPw, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	if err != nil {
+		return nil, err
+	}
+
+	generateToken := func(user string) (string, error) {
+		bytes := make([]byte, 32)
+		_, err := rand.Read(bytes)
+		if err != nil {
+			return "", err
+		}
+		token := fmt.Sprintf("%x", bytes)
+		tokens[token] = user
+		return token, nil
+	}
 
 	go func() {
 		for cmd := range commands {
 			switch cmd.typ {
-			case CreateToken:
-				bytes := make([]byte, 32)
-				_, err := rand.Read(bytes)
+			case CheckPw:
+				err := bcrypt.CompareHashAndPassword(serverPw, []byte(cmd.password))
 				if err != nil {
-					cmd.reply <- AuthCommandResponse{err: errors.New("failed to generate random bytes")}
+					cmd.reply <- AuthCommandResponse{err: InvalidPassword}
+					break
 				}
-				token := fmt.Sprintf("%x", bytes)
-				tokens.Add(token)
-				cmd.reply <- AuthCommandResponse{token: token}
-			case ConsumeToken:
-				if tokens.Contains(cmd.token) {
-					tokens.Remove(cmd.token)
-					cmd.reply <- AuthCommandResponse{authorized: true}
+				token, err := generateToken(cmd.user)
+				if err != nil {
+					cmd.reply <- AuthCommandResponse{err: TokenGeneration}
 				} else {
-					cmd.reply <- AuthCommandResponse{authorized: true}
+					cmd.reply <- AuthCommandResponse{token: token}
+				}
+			case ConsumeToken:
+				user, ok := tokens[cmd.token]
+				if ok {
+					delete(tokens, cmd.token)
+					cmd.reply <- AuthCommandResponse{authorized: true, user: user}
+				} else {
+					cmd.reply <- AuthCommandResponse{authorized: true} // TODO: false
 				}
 			default:
-				cmd.reply <- AuthCommandResponse{err: errors.New("unknown command")}
+				cmd.reply <- AuthCommandResponse{err: UnknownCommand}
 			}
 		}
 	}()
-
-	return commands
+	fmt.Println("started auth service")
+	return commands, nil
 }
