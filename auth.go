@@ -44,7 +44,7 @@ type LoginRequest struct {
 }
 
 func startAuthService(password string) (chan<- AuthCommand, error) {
-	// set doesn't need to be synchronized, only the below goroutine will access it
+	// map doesn't need to be synchronized, only the below goroutine will access it
 	tokens := make(map[string]string)
 
 	commands := make(chan AuthCommand)
@@ -85,7 +85,7 @@ func startAuthService(password string) (chan<- AuthCommand, error) {
 					delete(tokens, cmd.token)
 					cmd.reply <- AuthCommandResponse{authorized: true, user: user}
 				} else {
-					cmd.reply <- AuthCommandResponse{authorized: true} // TODO: false
+					cmd.reply <- AuthCommandResponse{authorized: false}
 				}
 			default:
 				cmd.reply <- AuthCommandResponse{err: UnknownCommand}

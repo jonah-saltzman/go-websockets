@@ -35,7 +35,7 @@ func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing token", http.StatusBadRequest)
 	}
 	replyChannel := make(chan AuthCommandResponse)
-	server.authChannel<- AuthCommand{typ: ConsumeToken, reply: replyChannel, token: token}
+	server.authChannel <- AuthCommand{typ: ConsumeToken, reply: replyChannel, token: token}
 	reply := <-replyChannel
 	if reply.authorized {
 		server.joinRoom(w, r, reply.user)
@@ -95,6 +95,8 @@ outer:
 }
 
 func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("login attempt")
+	// w.Header().Set("Access-Control-Allow-Origin", "*")
 	var login LoginRequest
 	err := json.NewDecoder(r.Body).Decode(&login)
 	if err != nil {
@@ -102,7 +104,7 @@ func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	replyChannel := make(chan AuthCommandResponse)
-	server.authChannel<- AuthCommand{typ: CheckPw, reply: replyChannel, user: login.User, password: login.Password}
+	server.authChannel <- AuthCommand{typ: CheckPw, reply: replyChannel, user: login.User, password: login.Password}
 	reply := <-replyChannel
 	if reply.err != NoError {
 		switch reply.err {

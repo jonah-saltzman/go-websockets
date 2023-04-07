@@ -32,9 +32,7 @@ func startMessageService(server *Server) chan<- *Message {
 			}
 			server.usersMutex.Lock()
 			for u := range server.users {
-				if msg.User.Id != u.Id {
-					u.to <- &msgBytes
-				}
+				u.to <- &msgBytes
 			}
 			server.usersMutex.Unlock()
 			server.messageMutex.Lock()

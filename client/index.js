@@ -4,14 +4,15 @@
     // and so we should scroll the next message into view when received.
     let expectingMessage = false
     let shared
-    function dial(username) {
-      const conn = new WebSocket(`ws://${location.host}/join?token=asd&user=${username}`)
+    function dial(username, token) {
+      console.log(`dialing ${username} / ${token}`)
+      const conn = new WebSocket(`ws://${location.host}/join?token=${token}&user=${username}`)
       shared = conn
       conn.addEventListener("close", ev => {
         appendLog(`WebSocket Disconnected code: ${ev.code}, reason: ${ev.reason}`, true)
         if (ev.code !== 1001) {
           appendLog("Reconnecting in 1s", true)
-          setTimeout(() => dial(username), 1000)
+          setTimeout(() => dial(username, token), 1000)
         }
       })
       conn.addEventListener("open", ev => {
@@ -28,7 +29,7 @@
         console.log(ev.data)
         const msg = JSON.parse(ev.data)
         console.log(msg)
-        const p = appendLog(`${msg.User.Name}: ${msg.Body}`)
+        const p = appendLog(`${msg.user.name} (${msg.time}): ${msg.body}`)
         if (expectingMessage) {
           p.scrollIntoView()
           expectingMessage = false
@@ -37,10 +38,27 @@
     }
 
     const userForm = document.getElementById("userbtn")
-    userForm.addEventListener('click', (ev) => {
-      ev.preventDefault()
-      const username = document.getElementById("user-input").value
-      dial(username)
+    userForm.addEventListener('click', async (ev) => {
+      try {
+        ev.preventDefault()
+        const username = document.getElementById("user-input").value
+        const password = document.getElementById('pw-input').value
+        const url = `http://${location.host}/login`
+        console.log({url})
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            user: username,
+            password
+          })
+        })
+        const token = await r.text()
+        console.log(token)
+        dial(username, token)
+      } catch(err) {
+        console.log(err)
+      }
     })
   
     const messageLog = document.getElementById("message-log")
@@ -51,7 +69,7 @@
     function appendLog(text, error) {
       const p = document.createElement("p")
       // Adding a timestamp to each message makes the log easier to read.
-      p.innerText = `${new Date().toLocaleTimeString()}: ${text}`
+      p.innerText = text
       if (error) {
         p.style.color = "red"
         p.style.fontStyle = "bold"
