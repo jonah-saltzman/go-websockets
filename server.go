@@ -2,18 +2,20 @@ package main
 
 import (
 	// "fmt"
+	"errors"
+	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	// "nhooyr.io/websocket"
+	"nhooyr.io/websocket"
 )
 
 type User struct {
 	id   uuid.UUID
 	name string
+	recv chan []byte
 }
 
 type Message struct {
@@ -39,27 +41,94 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
-	authorizationHeader := r.Header.Get("Authorization")
-	authorization := strings.Split(authorizationHeader, " ")
-	if authorizationHeader == "" || authorization[0] != "Bearer" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("400 - Invalid authorization header"))
+	err, token, username := validateJoinReq(w, r)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 	replyChannel := make(chan AuthCommandResponse)
-	server.authChannel <- AuthCommand{typ: ConsumeToken, reply: replyChannel, token: authorization[1]}
+	server.authChannel <- AuthCommand{typ: ConsumeToken, reply: replyChannel, token: token}
 	reply := <-replyChannel
 	if reply.authorized {
-		w.Write([]byte("200 - authorized"))
+		server.joinRoom(w, r, username)
 	} else {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("401 - unauthorized"))
 	}
 }
 
+func validateJoinReq(w http.ResponseWriter, r *http.Request) (error, string, string) {
+	token := r.URL.Query().Get("token")
+	user := r.URL.Query().Get("user")
+	if token == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Missing token"))
+		return errors.New("invalid authorization header"), "", ""
+	}
+	if user == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("400 - Missing user field"))
+		return errors.New("missing user field"), "", ""
+	}
+	return nil, token, user
+}
+
+func (server *Server) joinRoom(w http.ResponseWriter, r *http.Request, username string) error {
+	fmt.Println("joining room")
+	connection, err := websocket.Accept(w, r, nil)
+	ctx := r.Context()
+	if err != nil {
+		return err
+	}
+	defer connection.Close(websocket.StatusInternalError, "Unknown server error")
+	user := &User{recv: make(chan []byte), name: username, id: uuid.New()}
+	sent := make(chan []byte)
+	done := ctx.Done()
+	server.addUser(user)
+	defer server.removeUser(user)
+	go func() {
+		fmt.Println("listening")
+		for {
+			_, ok := <-done
+			if !ok { return }
+			_, bytes, err := connection.Read(ctx)
+			if err != nil {
+				fmt.Println(err)
+			}
+			sent <- bytes
+		}
+	}()
+	for {
+		select {
+		case msg := <-user.recv:
+			connection.Write(ctx, websocket.MessageText, msg)
+		case msg := <-sent:
+			fmt.Printf("%s\n", msg)
+		// case <-done:
+		// 	fmt.Println("done?")
+		// 	fmt.Println(ctx.Err())
+		}
+	}
+}
+
 func createServer() *Server {
 	var server Server
+	server.users = make(map[*User]struct{})
+	server.messages = make(map[*Message]struct{})
 	server.authChannel = startAuthService()
 	server.mux.HandleFunc("/join", server.joinRoomHandler)
+	server.mux.Handle("/", http.FileServer(http.Dir("./client")))
 	return &server
+}
+
+func (server *Server) addUser(user *User) {
+	server.usersMutex.Lock()
+	server.users[user] = struct{}{}
+	server.usersMutex.Unlock()
+}
+
+func (server *Server) removeUser(user *User) {
+	server.usersMutex.Lock()
+	delete(server.users, user)
+	server.usersMutex.Unlock()
 }

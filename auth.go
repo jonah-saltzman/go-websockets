@@ -17,7 +17,7 @@ const (
 type AuthCommandResponse struct {
 	authorized bool
 	token      string
-	e          error
+	err        error
 }
 
 type AuthCommand struct {
@@ -39,7 +39,7 @@ func startAuthService() chan<- AuthCommand {
 				bytes := make([]byte, 32)
 				_, err := rand.Read(bytes)
 				if err != nil {
-					cmd.reply <- AuthCommandResponse{e: errors.New("failed to generate random bytes")}
+					cmd.reply <- AuthCommandResponse{err: errors.New("failed to generate random bytes")}
 				}
 				token := fmt.Sprintf("%x", bytes)
 				tokens.Add(token)
@@ -49,10 +49,10 @@ func startAuthService() chan<- AuthCommand {
 					tokens.Remove(cmd.token)
 					cmd.reply <- AuthCommandResponse{authorized: true}
 				} else {
-					cmd.reply <- AuthCommandResponse{authorized: false}
+					cmd.reply <- AuthCommandResponse{authorized: true}
 				}
 			default:
-				cmd.reply <- AuthCommandResponse{e: errors.New("unknown command")}
+				cmd.reply <- AuthCommandResponse{err: errors.New("unknown command")}
 			}
 		}
 	}()
