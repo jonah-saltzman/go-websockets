@@ -63,6 +63,7 @@
   
       expectingMessage = true
       try {
+        console.log(`sending ${msg}`)
         shared.send(msg)
       } catch (err) {
         appendLog(`Publish failed: ${err}`, true)

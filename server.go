@@ -81,34 +81,36 @@ func (server *Server) joinRoom(w http.ResponseWriter, r *http.Request, username 
 		return err
 	}
 	defer connection.Close(websocket.StatusInternalError, "Unknown server error")
+
 	user := &User{recv: make(chan []byte), name: username, id: uuid.New()}
-	sent := make(chan []byte)
-	done := ctx.Done()
 	server.addUser(user)
 	defer server.removeUser(user)
+
+	sent := make(chan []byte)
 	go func() {
-		fmt.Println("listening")
 		for {
-			_, ok := <-done
-			if !ok { return }
 			_, bytes, err := connection.Read(ctx)
 			if err != nil {
 				fmt.Println(err)
+				close(sent)
+				return
 			}
 			sent <- bytes
 		}
 	}()
+Outer:
 	for {
 		select {
 		case msg := <-user.recv:
 			connection.Write(ctx, websocket.MessageText, msg)
-		case msg := <-sent:
+		case msg, ok := <-sent:
+			if !ok {
+				break Outer
+			}
 			fmt.Printf("%s\n", msg)
-		// case <-done:
-		// 	fmt.Println("done?")
-		// 	fmt.Println(ctx.Err())
 		}
 	}
+	return errors.New("connection closed")
 }
 
 func createServer() *Server {
@@ -122,12 +124,14 @@ func createServer() *Server {
 }
 
 func (server *Server) addUser(user *User) {
+	fmt.Printf("add user %s\n", user.name)
 	server.usersMutex.Lock()
 	server.users[user] = struct{}{}
 	server.usersMutex.Unlock()
 }
 
 func (server *Server) removeUser(user *User) {
+	fmt.Printf("remove user %s\n", user.name)
 	server.usersMutex.Lock()
 	delete(server.users, user)
 	server.usersMutex.Unlock()
