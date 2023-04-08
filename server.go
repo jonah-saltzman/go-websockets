@@ -95,7 +95,7 @@ outer:
 }
 
 func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("login attempt")
+	//fmt.Println("login attempt")
 	// w.Header().Set("Access-Control-Allow-Origin", "*")
 	var login LoginRequest
 	err := json.NewDecoder(r.Body).Decode(&login)

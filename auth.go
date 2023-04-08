@@ -48,7 +48,7 @@ func startAuthService(password string) (chan<- AuthCommand, error) {
 	tokens := make(map[string]string)
 
 	commands := make(chan AuthCommand)
-	serverPw, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	serverPw, err := bcrypt.GenerateFromPassword([]byte(password), 7)
 	if err != nil {
 		return nil, err
 	}
