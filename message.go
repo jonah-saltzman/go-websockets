@@ -44,11 +44,13 @@ type Message struct {
 
 type MessageBucket struct {
 	Id        int        `json:"page"`
-	Messages  []*Message `json:"messages"`
+	Messages  []*Message `json:"messages,omitempty"`
 	json      *string
 	jsonStale bool
 }
 
+// the message service is a goroutine which handles incoming
+// messages and paged requests for message history
 func startMessageService(server *Server) chan<- MessageCommand {
 	msgCommands := make(chan MessageCommand, 100)
 	buckets := list.New()
@@ -68,6 +70,8 @@ func startMessageService(server *Server) chan<- MessageCommand {
 	return msgCommands
 }
 
+// after a bucket is full, it will be serialized a maximum of one time, after
+// which all subsequent requests for the same bucket will return the same *string
 func getGetMessagesHandler(buckets *list.List) func(MessageCommand) {
 	return func(mc MessageCommand) {
 		e := buckets.Back()
@@ -93,10 +97,14 @@ func getGetMessagesHandler(buckets *list.List) func(MessageCommand) {
 			bucket.json = &str
 			bucket.jsonStale = false
 		}
+		// we can pass a pointer to the json string through the channel because this string will
+		// never be modified. If a new message comes in, a new json string will be generated
 		mc.reply <- MessageCommandResponse{messagesJson: bucket.json, nextPage: bucket.Id - 1}
 	}
 }
 
+// broadcasts the msg and puts it in a bucket, creating a new bucket if current one
+// is full
 func (server *Server) getNewMessageHandler(buckets *list.List) func(MessageCommand) {
 	currId := 1
 	return func(mc MessageCommand) {

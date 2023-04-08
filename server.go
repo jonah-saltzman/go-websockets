@@ -35,6 +35,10 @@ type WsErrorResponse struct {
 	Err string `json:"err"`
 }
 
+type LoginResponse struct {
+	Token string `json:"token"`
+}
+
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	server.mux.ServeHTTP(w, r)
 }
@@ -125,7 +129,8 @@ func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	w.Write([]byte(reply.token))
+	tokenJson, _ := json.Marshal(LoginResponse{Token: reply.token})
+	w.Write(tokenJson)
 }
 
 func (server *Server) getHistoryHandler(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +193,7 @@ func createServer(password string) (*Server, error) {
 		return nil, errors.New("failed to start the auth service")
 	}
 	server.msgChannel = startMessageService(&server)
-	server.mux.Handle("/", http.FileServer(http.Dir("./client")))
+	server.mux.Handle("/", http.FileServer(http.Dir("./client/build")))
 	server.mux.HandleFunc("/join", server.joinRoomHandler)
 	server.mux.HandleFunc("/login", server.loginHandler)
 	server.mux.HandleFunc("/history", server.getHistoryHandler)
