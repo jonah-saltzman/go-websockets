@@ -16,6 +16,7 @@ body {
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   padding: 20px;
+  position: relative;
 }
 
 .form {
@@ -133,3 +134,22 @@ body {
   padding: 10px;
 }
 
+.logout-wrapper {
+  position: absolute;
+  top: -40px;
+  right: 0;
+}
+
+.logout-button {
+  background-color: #dc3545;
+  color: #fff;
+  font-size: 16px;
+  padding: 8px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  background-color: #c82333;
+}

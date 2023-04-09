@@ -1,9 +1,10 @@
 import { GetMessagesResponse, HttpErrorMap, SocketConnOpts, isWhoAmI, isMessage } from "./types"
 
 const baseUrl = window.location.host
-export const SOCKET_ENDPOINT = `ws://${baseUrl}/join`
-export const LOGIN_ENDPOINT = `http://${baseUrl}/login`
-export const HISTORY_ENDPOINT = `http://${baseUrl}/history`
+const SOCKET_ENDPOINT = `ws://${baseUrl}/join`
+const LOGIN_ENDPOINT = `http://${baseUrl}/login`
+const LOGOUT_ENDPOINT = `http://${baseUrl}/logout`
+const HISTORY_ENDPOINT = `http://${baseUrl}/history`
 
 export async function getHistory(page: number, token: string): Promise<GetMessagesResponse> {
     const response = await fetch(`${HISTORY_ENDPOINT}?page=${page}`, {
@@ -18,7 +19,6 @@ export async function getHistory(page: number, token: string): Promise<GetMessag
 }
 
 export async function login(user: string, password: string): Promise<string> {
-    console.log({LOGIN_ENDPOINT})
     const response = await fetch(LOGIN_ENDPOINT, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -26,6 +26,14 @@ export async function login(user: string, password: string): Promise<string> {
     })
     handleHttpResponse(response)
     return (await response.json()).token
+}
+
+export async function logout(token: string): Promise<void> {
+    const response = await fetch(LOGOUT_ENDPOINT, {
+        method: 'GET',
+        headers: {'Authorization': `Bearer ${token}`}
+    })
+    handleHttpResponse(response)
 }
 
 export function getSocketConnection(opts: SocketConnOpts) {

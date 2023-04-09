@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { login, getHistory, getSocketConnection } from './io'
+import { login, getHistory, getSocketConnection, logout } from './io'
 import './App.css'
 import { Message } from './types'
 import { MessageBox } from './Message'
@@ -25,6 +25,15 @@ const App = () => {
             const token = await login(user, password)
             setToken(token)
             getSocketConnection({ token, user, setMessages, setSocket, setUserId, setToken })
+        } catch (err) {
+            alert(err)
+        }
+    }
+
+    const handleLogout = async (token: string) => {
+        if (!token) return
+        try {
+            await logout(token)
         } catch (err) {
             alert(err)
         }
@@ -59,7 +68,7 @@ const App = () => {
             getHistory(page, token)
         }
     }
-    
+
     useEffect(() => {
         if (shouldLogin) {
             setShouldLogin(false)
@@ -79,12 +88,16 @@ const App = () => {
 
     return (
         <div className="container">
+            {token && (
+                <div className="logout-wrapper">
+                    <button className="logout-button" onClick={() => handleLogout(token)}>Logout</button>
+                </div>
+            )}
             {!token && (
-
-                    <form id='login-form' className='form' onSubmit={e => {
-                        e.preventDefault()
-                        //handleLogin(user, password)
-                    }}>
+                <form id='login-form' className='form' onSubmit={e => {
+                    e.preventDefault()
+                    //handleLogin(user, password)
+                }}>
                     <input
                         type="text"
                         placeholder="Username"
@@ -98,7 +111,7 @@ const App = () => {
                         onChange={(e) => setPassword(e.target.value)}
                     />
                     <button onClick={() => setShouldLogin(true)}>Login</button>
-                    </form>
+                </form>
             )}
             {token && (
                 <div className="chat" onScroll={handleScroll}>

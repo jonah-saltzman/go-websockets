@@ -39,6 +39,7 @@ func CreateServer(password string) (*Server, error) {
 	server.mux.HandleFunc("/join", server.joinRoomHandler)
 	server.mux.HandleFunc("/login", server.loginHandler)
 	server.mux.HandleFunc("/history", server.getHistoryHandler)
+	server.mux.HandleFunc("/logout", server.logoutHandler)
 	return &server, nil
 }
 
@@ -55,10 +56,8 @@ func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing token", http.StatusBadRequest)
 		return
 	}
-	replyChannel := make(chan auth.AuthCommandResponse)
-	server.authChannel <- auth.AuthCommand{Typ: auth.CheckToken, Reply: replyChannel, Token: token}
-	reply := <-replyChannel
-	if !reply.Authorized {
+	user := server.checkToken(token, false)
+	if user == nil {
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
@@ -69,14 +68,14 @@ func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer connection.Close(websocket.StatusInternalError, "Unknown server error")
-	userJson, err := json.Marshal(*reply.User)
+	userJson, err := json.Marshal(*user)
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
 	connection.Write(ctx, websocket.MessageText, userJson)
-	msg.SubscribeUser(server, reply.User, ctx, connection.Read, connection.Write)
+	msg.SubscribeUser(server, user, ctx, connection.Read, connection.Write)
 }
 
 // Validates login requests and passes them to the auth service for authentication
@@ -121,7 +120,7 @@ func (server *Server) getHistoryHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user := server.checkToken(token)
+	user := server.checkToken(token, false)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -139,6 +138,20 @@ func (server *Server) getHistoryHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Write([]byte(*reply.MessagesJson))
+}
+
+func (server *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	token, err := parseTokenFromHeader(r.Header)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	user := server.checkToken(token, true)
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	} else {
+		w.Write([]byte("OK"))
+	}
 }
 
 // helper functions implement ServerInterface in the messages package
@@ -165,9 +178,15 @@ func parseTokenFromHeader(header http.Header) (string, error) {
 	return slice[1], nil
 }
 
-func (server *Server) checkToken(tokenString string) *auth.User {
+func (server *Server) checkToken(tokenString string, consume bool) *auth.User {
 	replyChannel := make(chan auth.AuthCommandResponse)
-	server.authChannel <- auth.AuthCommand{Typ: auth.CheckToken, Token: tokenString, Reply: replyChannel}
+	cmd := auth.AuthCommand{Token: tokenString, Reply: replyChannel}
+	if consume {
+		cmd.Typ = auth.ConsumeToken
+	} else {
+		cmd.Typ = auth.CheckToken
+	}
+	server.authChannel <- cmd
 	reply := <-replyChannel
 	return reply.User
 }
