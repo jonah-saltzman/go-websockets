@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"bytes"
@@ -7,17 +7,19 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/jonah-saltzman/go-websockets/auth"
 )
 
 var s *Server
 
-var goodLogin, _ = json.Marshal(LoginRequest{
+var goodLogin, _ = json.Marshal(auth.LoginRequest{
 	User:     "jonah",
 	Password: "look24",
 })
 
 func TestMain(m *testing.M) {
-	server, err := createServer("look24")
+	server, err := CreateServer("look24")
 	if err != nil {
 		os.Exit(1)
 	}
@@ -41,13 +43,3 @@ func TestLoginHandler(t *testing.T) {
 	}
 }
 
-func BenchmarkLogin(b *testing.B) {
-	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(goodLogin))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	handler := http.HandlerFunc(s.loginHandler)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		handler(w, req)
-	}
-}

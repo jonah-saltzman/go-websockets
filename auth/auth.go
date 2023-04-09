@@ -1,20 +1,24 @@
-package main
+package auth
 
 import (
 	"crypto/rand"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const TOKEN_EXP time.Duration = time.Hour * 24
 
-func startAuthService(password string) (chan<- AuthCommand, error) {
+// auth service is a goroutine which handles logins and authentication of websocket
+// requests. If a user provides the correct server password, they receive a token
+// which can be used to join the chat room and request the message history.
+func StartAuthService(password string) (chan<- AuthCommand, error) {
 	// container doesn't need to be synchronized, only the below goroutine will access it
 	tc := TokenContainer{tokens: make(map[string]*Token)}
 
-	commands := make(chan AuthCommand)
+	commands := make(chan AuthCommand, 100)
 	serverPw, err := bcrypt.GenerateFromPassword([]byte(password), 7)
 	if err != nil {
 		return nil, err
@@ -22,39 +26,38 @@ func startAuthService(password string) (chan<- AuthCommand, error) {
 
 	go func() {
 		for cmd := range commands {
-			switch cmd.typ {
+			switch cmd.Typ {
 			case CreateToken:
-				err := bcrypt.CompareHashAndPassword(serverPw, []byte(cmd.password))
+				err := bcrypt.CompareHashAndPassword(serverPw, []byte(cmd.Password))
 				if err != nil {
-					cmd.reply <- AuthCommandResponse{err: InvalidPassword}
+					cmd.Reply <- AuthCommandResponse{Err: InvalidPassword}
 					break
 				}
-				token, err := tc.generateToken(cmd.user)
+				token, err := tc.generateToken(cmd.User)
 				if err != nil {
-					cmd.reply <- AuthCommandResponse{err: TokenGeneration}
+					cmd.Reply <- AuthCommandResponse{Err: TokenGeneration}
 				} else {
-					cmd.reply <- AuthCommandResponse{token: token}
+					cmd.Reply <- AuthCommandResponse{Token: token}
 				}
 			case CheckToken:
-				user := tc.checkToken(cmd.token)
-				respondGetToken(user, cmd.reply)
+				user := tc.checkToken(cmd.Token)
+				respondGetToken(user, cmd.Reply)
 			case ConsumeToken:
-				user := tc.consumeToken(cmd.token)
-				respondGetToken(user, cmd.reply)
+				user := tc.consumeToken(cmd.Token)
+				respondGetToken(user, cmd.Reply)
 			default:
-				cmd.reply <- AuthCommandResponse{err: UnknownCommand}
+				cmd.Reply <- AuthCommandResponse{Err: UnknownCommand}
 			}
 		}
 	}()
-	fmt.Println("started auth service")
 	return commands, nil
 }
 
 func respondGetToken(user *User, c chan AuthCommandResponse) {
 	if user != nil {
-		c <- AuthCommandResponse{authorized: true, user: user}
+		c <- AuthCommandResponse{Authorized: true, User: user}
 	} else {
-		c <- AuthCommandResponse{authorized: false, user: nil}
+		c <- AuthCommandResponse{Authorized: false, User: nil}
 	}
 }
 
@@ -111,28 +114,35 @@ const (
 type AuthCommandError int
 
 const (
-	NoAuthError = iota
+	NoError = iota
 	InvalidPassword
 	TokenGeneration
 	UnknownCommand
 )
 
 type AuthCommandResponse struct {
-	authorized bool
-	token      string
-	user       *User
-	err        AuthCommandError
+	Authorized bool
+	Token      string
+	User       *User
+	Err        AuthCommandError
 }
 
 type AuthCommand struct {
-	typ      AuthCommandType
-	token    string
-	user     *User
-	password string
-	reply    chan AuthCommandResponse
+	Typ      AuthCommandType
+	Token    string
+	User     *User
+	Password string
+	Reply    chan AuthCommandResponse
 }
 
 type LoginRequest struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
+}
+
+type User struct {
+	Id   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// From chan []byte  `json:"-"`
+	Out chan *[]byte `json:"-"`
 }

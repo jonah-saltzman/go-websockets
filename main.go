@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/jonah-saltzman/go-websockets/server"
 )
 
 func main() {
@@ -25,7 +27,7 @@ func startHttpServer(port string, password string) error {
 	if err != nil {
 		return err
 	}
-	server, err := createServer(password)
+	server, err := server.CreateServer(password)
 	if err != nil {
 		return err
 	}
