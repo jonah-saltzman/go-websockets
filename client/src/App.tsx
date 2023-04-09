@@ -35,8 +35,6 @@ const App = () => {
         try {
             if (page === -2) return
             const response = await getHistory(page, token)
-            console.log('response')
-            console.log(response)
             setMessages((prev) => [...prev, ...response.messages])
             setPage(response.page === 0 ? -2 : response.page - 1)
         } catch (err) {

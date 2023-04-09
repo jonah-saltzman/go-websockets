@@ -39,12 +39,12 @@ export type SocketConnOpts = {
     setToken: React.Dispatch<React.SetStateAction<string>>
 }
 
-export type WsWhoAmIMsg = {
+export type WhoAmIMsg = {
     id: string
     name: string
 }
 
-export function isWhoAmI(msg: unknown): msg is WsWhoAmIMsg {
+export function isWhoAmI(msg: unknown): msg is WhoAmIMsg {
     if (typeof msg !== 'object' || msg == null)
         return false
     if (!('id' in msg) || !('name' in msg))

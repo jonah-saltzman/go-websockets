@@ -1,17 +1,12 @@
 package main
 
 import (
-	// "context"
-	// "errors"
-	// "log"
-	// "sync"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"time"
-	// "nhooyr.io/websocket"
 )
 
 func main() {

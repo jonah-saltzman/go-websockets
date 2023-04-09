@@ -5,10 +5,7 @@ export const SOCKET_ENDPOINT = `ws://${baseUrl}/join`
 export const LOGIN_ENDPOINT = `http://${baseUrl}/login`
 export const HISTORY_ENDPOINT = `http://${baseUrl}/history`
 
-let retrier
-
 export async function getHistory(page: number, token: string): Promise<GetMessagesResponse> {
-    console.log(`gethistory page=${page}`)
     const response = await fetch(`${HISTORY_ENDPOINT}?page=${page}`, {
         method: 'GET',
         headers: {'Authorization': `Bearer ${token}`}

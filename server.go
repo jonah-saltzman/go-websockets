@@ -24,19 +24,21 @@ type Server struct {
 	msgChannel  chan<- MessageCommand
 }
 
-type User struct {
-	Id   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
-	from chan []byte
-	to   chan *[]byte
-}
-
-type WsErrorResponse struct {
-	Err string `json:"err"`
-}
-
-type LoginResponse struct {
-	Token string `json:"token"`
+func createServer(password string) (*Server, error) {
+	var server Server
+	var err error
+	server.users = make(map[*User]struct{})
+	server.authChannel, err = startAuthService(password)
+	if err != nil {
+		return nil, errors.New("failed to start the auth service")
+	}
+	server.msgChannel = startMessageService(&server)
+	server.mux.Handle("/", http.FileServer(http.Dir("./client/build")))
+	server.mux.HandleFunc("/join", server.joinRoomHandler)
+	server.mux.HandleFunc("/login", server.loginHandler)
+	server.mux.HandleFunc("/history", server.getHistoryHandler)
+	fmt.Println("started server")
+	return &server, nil
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,22 +78,21 @@ func (server *Server) joinRoom(w http.ResponseWriter, r *http.Request, user *Use
 
 	connection.Write(ctx, websocket.MessageText, userJson)
 
-	sent := make(chan []byte)
 	go func() {
 		for {
 			_, bytes, err := connection.Read(ctx)
 			if err != nil {
 				fmt.Println(err)
-				close(sent)
+				close(user.from)
 				return
 			}
-			sent <- bytes
+			user.from <- bytes
 		}
 	}()
 outer:
 	for {
 		select {
-		case msg, ok := <-sent:
+		case msg, ok := <-user.from:
 			if !ok {
 				break outer
 			}
@@ -102,8 +103,8 @@ outer:
 				errBytes, _ := json.Marshal(WsErrorResponse{Err: "failed to send message"})
 				connection.Write(ctx, websocket.MessageText, errBytes)
 			}
-		case jsonBytes := <-user.to:
-			connection.Write(ctx, websocket.MessageText, *jsonBytes)
+		case msg := <-user.to:
+			connection.Write(ctx, websocket.MessageText, *msg)
 		}
 	}
 	return errors.New("connection closed")
@@ -184,23 +185,6 @@ func (server *Server) checkToken(tokenString string) *User {
 	return reply.user
 }
 
-func createServer(password string) (*Server, error) {
-	var server Server
-	var err error
-	server.users = make(map[*User]struct{})
-	server.authChannel, err = startAuthService(password)
-	if err != nil {
-		return nil, errors.New("failed to start the auth service")
-	}
-	server.msgChannel = startMessageService(&server)
-	server.mux.Handle("/", http.FileServer(http.Dir("./client/build")))
-	server.mux.HandleFunc("/join", server.joinRoomHandler)
-	server.mux.HandleFunc("/login", server.loginHandler)
-	server.mux.HandleFunc("/history", server.getHistoryHandler)
-	fmt.Println("started server")
-	return &server, nil
-}
-
 func (server *Server) addUser(user *User) {
 	server.usersMutex.Lock()
 	server.users[user] = struct{}{}
@@ -211,4 +195,20 @@ func (server *Server) removeUser(user *User) {
 	server.usersMutex.Lock()
 	delete(server.users, user)
 	server.usersMutex.Unlock()
+}
+
+
+type User struct {
+	Id   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	from chan []byte
+	to   chan *[]byte
+}
+
+type WsErrorResponse struct {
+	Err string `json:"err"`
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
 }
