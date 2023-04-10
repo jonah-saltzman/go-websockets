@@ -28,17 +28,17 @@ func randomString(b int) string {
 // copy of all 1000 messages.
 func TestBroadcast(t *testing.T) {
 	s, _ := server.CreateServer("look24")
-	var joinwg sync.WaitGroup
-	var sentwg sync.WaitGroup
-	var donewg sync.WaitGroup
+	var joinWg sync.WaitGroup
+	var sentWg sync.WaitGroup
+	var doneWg sync.WaitGroup
 	clients := 1000
-	joinwg.Add(clients)
-	sentwg.Add(clients)
-	donewg.Add(clients)
+	joinWg.Add(clients)
+	sentWg.Add(clients)
+	doneWg.Add(clients)
 	for i := 0; i < clients; i++ {
 		go func(myI int) {
+			defer doneWg.Done()
 			randomUser := auth.User{Id: uuid.New(), Name: randomString(5), Out: make(chan *[]byte)}
-			haveRead := false
 			received := make(map[int]struct{})
 			mockWrite := func(ctx context.Context, typ websocket.MessageType, p []byte) error {
 				var msg msg.Message
@@ -53,11 +53,12 @@ func TestBroadcast(t *testing.T) {
 				received[n] = struct{}{}
 				return nil
 			}
+			haveRead := false
 			mockRead := func(ctx context.Context) (websocket.MessageType, []byte, error) {
 				if !haveRead {
-					joinwg.Wait()
+					defer sentWg.Done()
+					joinWg.Wait()
 					haveRead = true
-					sentwg.Done()
 					bytes := []byte(strconv.Itoa(myI))
 					return websocket.MessageText, bytes, nil
 				}
@@ -65,12 +66,11 @@ func TestBroadcast(t *testing.T) {
 			}
 			go msg.SubscribeUser(s, &randomUser, context.Background(), mockRead, mockWrite)
 			time.Sleep(time.Millisecond * 10)
-			joinwg.Done()
-			sentwg.Wait()
-			time.Sleep(time.Millisecond * 1000)
+			joinWg.Done()
+			sentWg.Wait()
+			time.Sleep(time.Second)
 			if len(received) != clients {
 				t.Errorf("incorrect number of messages received: %d\n", len(received))
-				donewg.Done()
 				return
 			}
 			for i := 0; i < clients; i++ {
@@ -80,8 +80,7 @@ func TestBroadcast(t *testing.T) {
 				}
 			}
 			t.Logf("[%s]: routine successful\n", randomUser.Name)
-			donewg.Done()
 		}(i)
 	}
-	donewg.Wait()
+	doneWg.Wait()
 }

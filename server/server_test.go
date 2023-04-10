@@ -42,4 +42,3 @@ func TestLoginHandler(t *testing.T) {
 		t.Errorf("token '%s' invalid", token)
 	}
 }
-

@@ -36,7 +36,7 @@ export type SocketConnOpts = {
     setSocket: React.Dispatch<React.SetStateAction<WebSocket | null>>
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>
     setUserId: React.Dispatch<React.SetStateAction<string>>
-    setToken: React.Dispatch<React.SetStateAction<string>>
+    onClose: () => void
 }
 
 export type WhoAmIMsg = {

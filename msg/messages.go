@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/jonah-saltzman/go-websockets/auth"
@@ -19,7 +18,7 @@ type ServerInterface interface {
 	IterUsers(func(u *auth.User) error) error
 	AddUser(*auth.User)
 	RemoveUser(*auth.User)
-	SendMsgCmd(MessageCommand)
+	SendMsgCommand(MessageCommand, bool) MessageCommandResponse
 }
 
 type MessageCommandType int
@@ -36,6 +35,7 @@ const (
 	JsonError
 	BadRequest
 	ServerError
+	UnknownCommand
 )
 
 type MessageCommand struct {
@@ -74,7 +74,7 @@ func StartMessageService(server ServerInterface) chan<- MessageCommand {
 	msgCommands := make(chan MessageCommand, MSG_CHAN_DEPTH)
 	buckets := list.New()
 	buckets.PushBack(&MessageBucket{Id: 0, Messages: make([]*Message, 0, MSG_BUCKET_SIZE), json: nil, jsonStale: true})
-	newMessageHandler := GetNewMessageHandler(server, buckets)
+	newMessageHandler := getNewMessageHandler(server, buckets)
 	getMessagesHandler := getGetMessagesHandler(buckets)
 	go func() {
 		for cmd := range msgCommands {
@@ -83,57 +83,23 @@ func StartMessageService(server ServerInterface) chan<- MessageCommand {
 				newMessageHandler(cmd)
 			case GetMessages:
 				getMessagesHandler(cmd)
+			default:
+				cmd.Reply <- MessageCommandResponse{Err: UnknownCommand}
 			}
 		}
 	}()
 	return msgCommands
 }
 
-// after a bucket is full, it will be serialized a maximum of one time, after
-// which all subsequent requests for the same bucket will return the same *string
-func getGetMessagesHandler(buckets *list.List) func(MessageCommand) {
-	return func(mc MessageCommand) {
-		e := buckets.Back()
-		if mc.Page > e.Value.(*MessageBucket).Id || mc.Page < -1 {
-			mc.Reply <- MessageCommandResponse{Err: BadRequest}
-			return
-		}
-		// in most cases a user will only want the 100 most recent messages, so normally
-		// we avoid traversing the list. If we do traverse, the traversal should terminate
-		// quickly
-		if mc.Page != -1 {
-			for ; e.Value.(*MessageBucket).Id > mc.Page && e != nil; e = e.Prev() {
-			}
-		}
-		if e == nil {
-			mc.Reply <- MessageCommandResponse{Err: ServerError}
-			return
-		}
-		bucket := e.Value.(*MessageBucket)
-		// don't reserialize the messages unless necessary
-		if bucket.jsonStale {
-			json, err := json.Marshal(*bucket)
-			if err != nil {
-				mc.Reply <- MessageCommandResponse{Err: JsonError}
-			}
-			str := string(json)
-			bucket.json = &str
-			bucket.jsonStale = false
-		}
-		// we can pass a pointer to the json string through the channel because this string will
-		// never be modified. If a new message comes in, a new json string will be generated
-		mc.Reply <- MessageCommandResponse{MessagesJson: bucket.json, NextPage: bucket.Id - 1}
-	}
-}
-
 // broadcasts the msg and puts it in a bucket, creating a new bucket if current one
 // is full
-func GetNewMessageHandler(server ServerInterface, buckets *list.List) func(MessageCommand) {
+func getNewMessageHandler(server ServerInterface, buckets *list.List) func(MessageCommand) {
 	currId := 1
-	return func(mc MessageCommand) {
-		msgBytes, err := json.Marshal(mc.Msg)
+	return func(cmd MessageCommand) {
+		msgBytes, err := json.Marshal(cmd.Msg)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			return
 		}
 		server.IterUsers(func(u *auth.User) error {
 			u.Out <- &msgBytes
@@ -141,14 +107,51 @@ func GetNewMessageHandler(server ServerInterface, buckets *list.List) func(Messa
 		})
 		currBucket := buckets.Back().Value.(*MessageBucket)
 		if len(currBucket.Messages) < 100 {
-			currBucket.Messages = append(currBucket.Messages, mc.Msg)
+			currBucket.Messages = append(currBucket.Messages, cmd.Msg)
 			currBucket.jsonStale = true
 		} else {
 			msgSlice := make([]*Message, 0, MSG_BUCKET_SIZE)
-			msgSlice = append(msgSlice, mc.Msg)
+			msgSlice = append(msgSlice, cmd.Msg)
 			buckets.PushBack(&MessageBucket{Id: currId, Messages: msgSlice, json: nil, jsonStale: true})
 			currId += 1
 		}
+	}
+}
+
+// after a bucket is full, it will be serialized a maximum of one time, after
+// which all subsequent requests for the same bucket will return the same *string
+func getGetMessagesHandler(buckets *list.List) func(MessageCommand) {
+	return func(cmd MessageCommand) {
+		e := buckets.Back()
+		if cmd.Page > e.Value.(*MessageBucket).Id || cmd.Page < -1 {
+			cmd.Reply <- MessageCommandResponse{Err: BadRequest}
+			return
+		}
+		// in most cases a user will only want the 100 most recent messages, so normally
+		// we avoid traversing the list. If we do traverse, the traversal should terminate
+		// quickly
+		if cmd.Page != -1 {
+			for ; e.Value.(*MessageBucket).Id > cmd.Page && e != nil; e = e.Prev() {
+			}
+		}
+		if e == nil {
+			cmd.Reply <- MessageCommandResponse{Err: ServerError}
+			return
+		}
+		bucket := e.Value.(*MessageBucket)
+		// don't reserialize the messages unless necessary
+		if bucket.jsonStale {
+			json, err := json.Marshal(*bucket)
+			if err != nil {
+				cmd.Reply <- MessageCommandResponse{Err: JsonError}
+			}
+			str := string(json)
+			bucket.json = &str
+			bucket.jsonStale = false
+		}
+		// we can pass a pointer to the json string through the channel because this string will
+		// never be modified. If a new message comes in, a new json string will be generated
+		cmd.Reply <- MessageCommandResponse{MessagesJson: bucket.json, NextPage: bucket.Id - 1}
 	}
 }
 
@@ -157,7 +160,13 @@ func GetNewMessageHandler(server ServerInterface, buckets *list.List) func(Messa
 // sends broadcasts to the user.
 // These are separate goroutines because I encountered deadlocks with high message volume when
 // a single goroutine was responsible for incoming and outgoing messages.
-func SubscribeUser(server ServerInterface, user *auth.User, ctx context.Context, read func(ctx context.Context) (websocket.MessageType, []byte, error), write func(ctx context.Context, typ websocket.MessageType, p []byte) error) {
+func SubscribeUser(
+	server ServerInterface,
+	user *auth.User,
+	ctx context.Context,
+	read func(ctx context.Context) (websocket.MessageType, []byte, error),
+	write func(ctx context.Context, typ websocket.MessageType, p []byte) error,
+) {
 	server.AddUser(user)
 	defer server.RemoveUser(user)
 	errChan := make(chan struct{})
@@ -170,7 +179,8 @@ func SubscribeUser(server ServerInterface, user *auth.User, ctx context.Context,
 				close(errChan)
 				return
 			}
-			server.SendMsgCmd(MessageCommand{Typ: NewMessage, Msg: &Message{User: user, Time: time.Now(), Body: string(bytes)}})
+			cmd := MessageCommand{Typ: NewMessage, Msg: &Message{User: user, Time: time.Now(), Body: string(bytes)}}
+			server.SendMsgCommand(cmd, false)
 		}
 	}()
 	go func() {
@@ -185,5 +195,4 @@ func SubscribeUser(server ServerInterface, user *auth.User, ctx context.Context,
 	}()
 	<-errChan
 	close(doneChan)
-
 }

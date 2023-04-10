@@ -28,10 +28,6 @@ type Server struct {
 	msgChannel  chan<- msg.MessageCommand
 }
 
-type LoginResponse struct {
-	Token string `json:"token"`
-}
-
 func CreateServer(password string) (*Server, error) {
 	var server Server
 	var err error
@@ -58,6 +54,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // to the message service
 func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
+	ctx := r.Context()
 	if token == "" {
 		http.Error(w, "Missing token", http.StatusBadRequest)
 		return
@@ -67,20 +64,22 @@ func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
+
 	connection, err := websocket.Accept(w, r, nil)
-	ctx := r.Context()
 	if err != nil {
 		http.Error(w, "Websocket error", http.StatusInternalServerError)
 		return
 	}
 	defer connection.Close(websocket.StatusInternalError, "Unknown server error")
+
+	// send whoami to client
 	userJson, err := json.Marshal(*user)
 	if err != nil {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-
 	connection.Write(ctx, websocket.MessageText, userJson)
+
 	msg.SubscribeUser(server, user, ctx, connection.Read, connection.Write)
 }
 
@@ -93,19 +92,18 @@ func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := &auth.User{Out: make(chan *[]byte, USER_OUTGOING_CHAN_DEPTH), Name: login.User, Id: uuid.New()}
-	replyChannel := make(chan auth.AuthCommandResponse)
-	server.authChannel <- auth.AuthCommand{Typ: auth.CreateToken, Reply: replyChannel, User: user, Password: login.Password}
-	reply := <-replyChannel
+	cmd := auth.AuthCommand{Typ: auth.CreateToken, User: user, Password: login.Password}
+	reply := server.sendAuthCommand(cmd)
 	if reply.Err != auth.NoError {
 		switch reply.Err {
 		case auth.InvalidPassword:
 			http.Error(w, "Invalid password", http.StatusUnauthorized)
-		case auth.TokenGeneration:
+		case auth.TokenGenerationErr:
 			http.Error(w, "Server error", http.StatusInternalServerError)
 		}
 		return
 	}
-	tokenJson, _ := json.Marshal(LoginResponse{Token: reply.Token})
+	tokenJson, _ := json.Marshal(auth.LoginResponse{Token: reply.Token})
 	w.Write(tokenJson)
 }
 
@@ -118,28 +116,27 @@ func (server *Server) getHistoryHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	page, err := strconv.Atoi(pageStr)
 	if err != nil {
-		http.Error(w, "invalid page parameter", http.StatusBadRequest)
+		http.Error(w, "Invalid page parameter", http.StatusBadRequest)
 		return
 	}
 	token, err := parseTokenFromHeader(r.Header)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid header", http.StatusBadRequest)
 		return
 	}
 	user := server.checkToken(token, false)
 	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	replyChannel := make(chan msg.MessageCommandResponse)
-	server.msgChannel <- msg.MessageCommand{Typ: msg.GetMessages, Page: page, Reply: replyChannel}
-	reply := <-replyChannel
+	cmd := msg.MessageCommand{Typ: msg.GetMessages, Page: page}
+	reply := server.SendMsgCommand(cmd, true)
 	if reply.Err != msg.NoError {
 		switch true {
-		case reply.Err == msg.JsonError || reply.Err == msg.ServerError:
-			http.Error(w, "server error", http.StatusInternalServerError)
+		case reply.Err == msg.JsonError || reply.Err == msg.ServerError || reply.Err == msg.UnknownCommand:
+			http.Error(w, "Server error", http.StatusInternalServerError)
 		case reply.Err == msg.BadRequest:
-			http.Error(w, "bad request", http.StatusBadRequest)
+			http.Error(w, "Bad request", http.StatusBadRequest)
 		}
 		return
 	}
@@ -149,18 +146,18 @@ func (server *Server) getHistoryHandler(w http.ResponseWriter, r *http.Request) 
 func (server *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	token, err := parseTokenFromHeader(r.Header)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid header", http.StatusBadRequest)
 		return
 	}
 	user := server.checkToken(token, true)
 	if user == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	} else {
 		w.Write([]byte("OK"))
 	}
 }
 
-// helper functions implement ServerInterface in the messages package
+// helper functions
 
 // provides synchronized access to the users map
 func (server *Server) IterUsers(f func(u *auth.User) error) error {
@@ -175,6 +172,24 @@ func (server *Server) IterUsers(f func(u *auth.User) error) error {
 	return nil
 }
 
+func (server *Server) sendAuthCommand(cmd auth.AuthCommand) auth.AuthCommandResponse {
+	replyChan := make(chan auth.AuthCommandResponse)
+	cmd.Reply = replyChan
+	server.authChannel <- cmd
+	return <-replyChan
+}
+
+func (server *Server) SendMsgCommand(cmd msg.MessageCommand, waitReply bool) msg.MessageCommandResponse {
+	replyChan := make(chan msg.MessageCommandResponse)
+	cmd.Reply = replyChan
+	server.msgChannel <- cmd
+	if waitReply {
+		return <-replyChan
+	} else {
+		return msg.MessageCommandResponse{}
+	}
+}
+
 func parseTokenFromHeader(header http.Header) (string, error) {
 	authorization := header.Get("Authorization")
 	slice := strings.Split(authorization, " ")
@@ -185,16 +200,13 @@ func parseTokenFromHeader(header http.Header) (string, error) {
 }
 
 func (server *Server) checkToken(tokenString string, consume bool) *auth.User {
-	replyChannel := make(chan auth.AuthCommandResponse)
-	cmd := auth.AuthCommand{Token: tokenString, Reply: replyChannel}
+	cmd := auth.AuthCommand{Token: tokenString}
 	if consume {
 		cmd.Typ = auth.ConsumeToken
 	} else {
 		cmd.Typ = auth.CheckToken
 	}
-	server.authChannel <- cmd
-	reply := <-replyChannel
-	return reply.User
+	return server.sendAuthCommand(cmd).User
 }
 
 func (server *Server) AddUser(user *auth.User) {
@@ -209,6 +221,6 @@ func (server *Server) RemoveUser(user *auth.User) {
 	server.usersMutex.Unlock()
 }
 
-func (server *Server) SendMsgCmd(cmd msg.MessageCommand) {
-	server.msgChannel <- cmd
-}
+// func (server *Server) SendMsgCmd(cmd msg.MessageCommand) {
+// 	server.msgChannel <- cmd
+// }

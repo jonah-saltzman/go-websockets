@@ -24,10 +24,15 @@ const App = () => {
         try {
             const token = await login(user, password)
             setToken(token)
-            getSocketConnection({ token, user, setMessages, setSocket, setUserId, setToken })
+            getSocketConnection({ token, user, setMessages, setSocket, setUserId, onClose })
         } catch (err) {
             alert(err)
         }
+    }
+
+    const onClose = () => {
+        clearState()
+        alert('Server disconnected')
     }
 
     const handleLogout = async (token: string) => {
@@ -35,14 +40,7 @@ const App = () => {
         try {
             await logout(token)
             socket?.close()
-            setToken("")
-            setMessages([])
-            setMessage("")
-            setUser("")
-            setPassword("")
-            setUserId("")
-            setPage(-1)
-            setSocket(null)
+            clearState()
         } catch (err) {
             alert(err)
         }
@@ -63,7 +61,6 @@ const App = () => {
     }
 
     const handleSendMessage = (msg: string) => {
-        console.log('sendmsg')
         if (!socket) return
         socket.send(msg)
     }
@@ -77,6 +74,17 @@ const App = () => {
         if (scrollTop === 0 && !isLoading) {
             getHistory(page, token)
         }
+    }
+
+    const clearState = () => {
+        setToken("")
+        setMessages([])
+        setMessage("")
+        setUser("")
+        setPassword("")
+        setUserId("")
+        setPage(-1)
+        setSocket(null)
     }
 
     useEffect(() => {
@@ -106,7 +114,6 @@ const App = () => {
             {!token && (
                 <form id='login-form' className='form' onSubmit={e => {
                     e.preventDefault()
-                    //handleLogin(user, password)
                 }}>
                     <input
                         type="text"

@@ -37,17 +37,13 @@ export async function logout(token: string): Promise<void> {
 }
 
 export function getSocketConnection(opts: SocketConnOpts) {
-    const {token, user, setMessages, setSocket, setUserId, setToken} = opts
+    const {token, user, setMessages, setSocket, setUserId, onClose} = opts
     const connection: WebSocket = new WebSocket(`${SOCKET_ENDPOINT}?token=${token}`)
     connection.addEventListener('open', ev => {
         setSocket(connection)
         console.log('ws connected')
     })
-    connection.addEventListener('close', ev => {
-        setMessages([])
-        setSocket(null)
-        setToken("")
-    })
+    connection.addEventListener('close', onClose)
     connection.addEventListener('message', ev => {
         const parsed = JSON.parse(ev.data)
         if (isWhoAmI(parsed)) {
