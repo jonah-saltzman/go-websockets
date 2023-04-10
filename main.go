@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/jonah-saltzman/go-websockets/server"
@@ -15,7 +16,11 @@ func main() {
 	if len(os.Args) < 3 {
 		log.Fatal("Usage: go-websockets [port] [password]")
 	}
-	err := startHttpServer(os.Args[1], os.Args[2])
+	_, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		log.Fatal("[port] must be an integer")
+	}
+	err = startHttpServer(os.Args[1], os.Args[2])
 	if err != nil {
 		log.Fatal(err)
 	}

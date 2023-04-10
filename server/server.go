@@ -58,7 +58,7 @@ func (server *Server) joinRoomHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	user := server.checkToken(token, false)
 	if user == nil {
-		http.Error(w, "Invalid password", http.StatusUnauthorized)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
 	connection, err := websocket.Accept(w, r, nil)
