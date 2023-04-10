@@ -34,6 +34,15 @@ const App = () => {
         if (!token) return
         try {
             await logout(token)
+            socket?.close()
+            setToken("")
+            setMessages([])
+            setMessage("")
+            setUser("")
+            setPassword("")
+            setUserId("")
+            setPage(-1)
+            setSocket(null)
         } catch (err) {
             alert(err)
         }
@@ -54,6 +63,7 @@ const App = () => {
     }
 
     const handleSendMessage = (msg: string) => {
+        console.log('sendmsg')
         if (!socket) return
         socket.send(msg)
     }

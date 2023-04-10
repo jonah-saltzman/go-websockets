@@ -17,6 +17,7 @@ body {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   padding: 20px;
   position: relative;
+  padding-top: 15px;
 }
 
 .form {
@@ -126,7 +127,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  height: 400px;
+  height: 500px;
   overflow-y: scroll;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -135,16 +136,16 @@ body {
 }
 
 .logout-wrapper {
-  position: absolute;
-  top: -40px;
-  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
 }
 
 .logout-button {
   background-color: #dc3545;
   color: #fff;
-  font-size: 16px;
-  padding: 8px;
+  font-size: 14px;
+  padding: 4px 8px;
   border-radius: 4px;
   border: none;
   cursor: pointer;
