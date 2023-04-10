@@ -14,6 +14,8 @@ import (
 	"nhooyr.io/websocket"
 )
 
+const USER_OUTGOING_CHAN_DEPTH int = 10
+
 // The server and its methods tie together the http handlers, the auth
 // service, and the message service
 type Server struct {
@@ -24,6 +26,10 @@ type Server struct {
 
 	authChannel chan<- auth.AuthCommand
 	msgChannel  chan<- msg.MessageCommand
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
 }
 
 func CreateServer(password string) (*Server, error) {
@@ -86,7 +92,7 @@ func (server *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request body", http.StatusBadRequest)
 		return
 	}
-	user := &auth.User{Out: make(chan *[]byte, 10), Name: login.User, Id: uuid.New()}
+	user := &auth.User{Out: make(chan *[]byte, USER_OUTGOING_CHAN_DEPTH), Name: login.User, Id: uuid.New()}
 	replyChannel := make(chan auth.AuthCommandResponse)
 	server.authChannel <- auth.AuthCommand{Typ: auth.CreateToken, Reply: replyChannel, User: user, Password: login.Password}
 	reply := <-replyChannel
@@ -205,8 +211,4 @@ func (server *Server) RemoveUser(user *auth.User) {
 
 func (server *Server) SendMsgCmd(cmd msg.MessageCommand) {
 	server.msgChannel <- cmd
-}
-
-type LoginResponse struct {
-	Token string `json:"token"`
 }

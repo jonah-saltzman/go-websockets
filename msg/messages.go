@@ -12,12 +12,68 @@ import (
 	"nhooyr.io/websocket"
 )
 
+const MSG_CHAN_DEPTH int = 10
+const MSG_BUCKET_SIZE int = 100
+
+type ServerInterface interface {
+	IterUsers(func(u *auth.User) error) error
+	AddUser(*auth.User)
+	RemoveUser(*auth.User)
+	SendMsgCmd(MessageCommand)
+}
+
+type MessageCommandType int
+
+const (
+	NewMessage = iota
+	GetMessages
+)
+
+type MessageCommandError int
+
+const (
+	NoError = iota
+	JsonError
+	BadRequest
+	ServerError
+)
+
+type MessageCommand struct {
+	Typ   MessageCommandType
+	Msg   *Message
+	Page  int
+	Reply chan MessageCommandResponse
+}
+
+type MessageCommandResponse struct {
+	MessagesJson *string
+	NextPage     int
+	Err          MessageCommandError
+}
+
+type Message struct {
+	User *auth.User `json:"user"`
+	Time time.Time  `json:"time"`
+	Body string     `json:"body"`
+}
+
+type MessageBucket struct {
+	Id        int        `json:"page"`
+	Messages  []*Message `json:"messages,omitempty"`
+	json      *string
+	jsonStale bool
+}
+
+type WsErrorResponse struct {
+	Err string `json:"err"`
+}
+
 // the message service is a goroutine which handles incoming
 // messages and paged requests for message history
 func StartMessageService(server ServerInterface) chan<- MessageCommand {
-	msgCommands := make(chan MessageCommand, 100)
+	msgCommands := make(chan MessageCommand, MSG_CHAN_DEPTH)
 	buckets := list.New()
-	buckets.PushBack(&MessageBucket{Id: 0, Messages: make([]*Message, 0, 100), json: nil, jsonStale: true})
+	buckets.PushBack(&MessageBucket{Id: 0, Messages: make([]*Message, 0, MSG_BUCKET_SIZE), json: nil, jsonStale: true})
 	newMessageHandler := GetNewMessageHandler(server, buckets)
 	getMessagesHandler := getGetMessagesHandler(buckets)
 	go func() {
@@ -88,7 +144,7 @@ func GetNewMessageHandler(server ServerInterface, buckets *list.List) func(Messa
 			currBucket.Messages = append(currBucket.Messages, mc.Msg)
 			currBucket.jsonStale = true
 		} else {
-			msgSlice := make([]*Message, 0, 100)
+			msgSlice := make([]*Message, 0, MSG_BUCKET_SIZE)
 			msgSlice = append(msgSlice, mc.Msg)
 			buckets.PushBack(&MessageBucket{Id: currId, Messages: msgSlice, json: nil, jsonStale: true})
 			currId += 1
@@ -130,57 +186,4 @@ func SubscribeUser(server ServerInterface, user *auth.User, ctx context.Context,
 	<-errChan
 	close(doneChan)
 
-}
-
-type ServerInterface interface {
-	IterUsers(func(u *auth.User) error) error
-	AddUser(*auth.User)
-	RemoveUser(*auth.User)
-	SendMsgCmd(MessageCommand)
-}
-
-type MessageCommandType int
-
-const (
-	NewMessage = iota
-	GetMessages
-)
-
-type MessageCommandError int
-
-const (
-	NoError = iota
-	JsonError
-	BadRequest
-	ServerError
-)
-
-type MessageCommand struct {
-	Typ   MessageCommandType
-	Msg   *Message
-	Page  int
-	Reply chan MessageCommandResponse
-}
-
-type MessageCommandResponse struct {
-	MessagesJson *string
-	NextPage     int
-	Err          MessageCommandError
-}
-
-type Message struct {
-	User *auth.User `json:"user"`
-	Time time.Time  `json:"time"`
-	Body string     `json:"body"`
-}
-
-type MessageBucket struct {
-	Id        int        `json:"page"`
-	Messages  []*Message `json:"messages,omitempty"`
-	json      *string
-	jsonStale bool
-}
-
-type WsErrorResponse struct {
-	Err string `json:"err"`
 }

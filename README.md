@@ -47,4 +47,5 @@ unless a user wants more than 100 messages of history.
 ### Auth service
 The auth service is a goroutine which handles logins and authentication of websocket
 requests. If a user provides the correct server password, they receive a token
-which can be used to join the chat room and request the message history.
+which can be used to join the chat room and request the message history. When validating
+tokens, it also checks whether the token has expired and deletes it if so.

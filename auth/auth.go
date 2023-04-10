@@ -10,6 +10,51 @@ import (
 )
 
 const TOKEN_EXP time.Duration = time.Hour * 24
+const AUTH_CHAN_DEPTH int = 100
+const TOKEN_BYTES int = 32
+
+type AuthCommandType int
+
+const (
+	CheckToken = iota
+	CreateToken
+	ConsumeToken
+)
+
+type AuthCommandError int
+
+const (
+	NoError = iota
+	InvalidPassword
+	TokenGeneration
+	UnknownCommand
+)
+
+type AuthCommandResponse struct {
+	Authorized bool
+	Token      string
+	User       *User
+	Err        AuthCommandError
+}
+
+type AuthCommand struct {
+	Typ      AuthCommandType
+	Token    string
+	User     *User
+	Password string
+	Reply    chan AuthCommandResponse
+}
+
+type LoginRequest struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+type User struct {
+	Id   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	Out chan *[]byte `json:"-"`
+}
 
 // auth service is a goroutine which handles logins and authentication of websocket
 // requests. If a user provides the correct server password, they receive a token
@@ -18,7 +63,7 @@ func StartAuthService(password string) (chan<- AuthCommand, error) {
 	// container doesn't need to be synchronized, only the below goroutine will access it
 	tc := TokenContainer{tokens: make(map[string]*Token)}
 
-	commands := make(chan AuthCommand, 100)
+	commands := make(chan AuthCommand, AUTH_CHAN_DEPTH)
 	serverPw, err := bcrypt.GenerateFromPassword([]byte(password), 7)
 	if err != nil {
 		return nil, err
@@ -72,7 +117,7 @@ type TokenContainer struct {
 
 func (tc *TokenContainer) generateToken(user *User) (string, error) {
 	exp := time.Now().Add(TOKEN_EXP)
-	bytes := make([]byte, 32)
+	bytes := make([]byte, TOKEN_BYTES)
 	_, err := rand.Read(bytes)
 	if err != nil {
 		return "", err
@@ -101,48 +146,4 @@ func (tc *TokenContainer) consumeToken(tokenString string) *User {
 		delete(tc.tokens, tokenString)
 	}
 	return exists
-}
-
-type AuthCommandType int
-
-const (
-	CheckToken = iota
-	CreateToken
-	ConsumeToken
-)
-
-type AuthCommandError int
-
-const (
-	NoError = iota
-	InvalidPassword
-	TokenGeneration
-	UnknownCommand
-)
-
-type AuthCommandResponse struct {
-	Authorized bool
-	Token      string
-	User       *User
-	Err        AuthCommandError
-}
-
-type AuthCommand struct {
-	Typ      AuthCommandType
-	Token    string
-	User     *User
-	Password string
-	Reply    chan AuthCommandResponse
-}
-
-type LoginRequest struct {
-	User     string `json:"user"`
-	Password string `json:"password"`
-}
-
-type User struct {
-	Id   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
-	// From chan []byte  `json:"-"`
-	Out chan *[]byte `json:"-"`
 }
